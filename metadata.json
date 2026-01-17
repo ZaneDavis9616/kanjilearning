@@ -1,0 +1,5 @@
+{
+  "name": "Joyo Kanji Mastery",
+  "description": "A flashcard application focused on mastering the official Joyo Kanji list. Features spaced repetition logic, mistake tracking, and progress visualization to ensure complete retention of readings and examples.",
+  "requestFramePermissions": []
+}
