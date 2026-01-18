@@ -134,8 +134,6 @@ const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
   const requestRef = useRef<number>(0);
-  const gestureHoldStartRef = useRef<number>(0);
-  const lastPoseRef = useRef<PoseType>('None');
   const lastVideoTimeRef = useRef<number>(-1);
 
   // Load progress
@@ -304,10 +302,7 @@ const App: React.FC = () => {
                           const rightSideY = rightWrist.y > rightShoulder.y && rightWrist.y < (rightHip.y + 0.2);
                           
                           // X check (Extension)
-                          // Assuming normal framing: 
-                          // Left Wrist X > Left Shoulder X + margin
                           const isLeftOut = leftWrist.x > (leftShoulder.x + 0.05);
-                          // Right Wrist X < Right Shoulder X - margin
                           const isRightOut = rightWrist.x < (rightShoulder.x - 0.05);
 
                           if (leftSideY && isLeftOut) {
@@ -376,95 +371,6 @@ const App: React.FC = () => {
       };
   }, [cameraEnabled]);
 
-  // Action Logic
-  useEffect(() => {
-    if (!cameraEnabled) {
-        setGestureProgress(0);
-        return;
-    }
-
-    const currentPose = detectedPose;
-    const now = Date.now();
-    const HOLD_TIME = 1000; 
-
-    if (currentPose !== lastPoseRef.current) {
-        gestureHoldStartRef.current = now;
-        lastPoseRef.current = currentPose;
-        setGestureProgress(0);
-        return;
-    }
-
-    if (currentPose === 'None') {
-        setGestureProgress(0);
-        gestureHoldStartRef.current = now; 
-        return;
-    }
-
-    const elapsed = now - gestureHoldStartRef.current;
-    const progress = Math.min((elapsed / HOLD_TIME) * 100, 100);
-    setGestureProgress(progress);
-
-    if (elapsed >= HOLD_TIME) {
-        // Trigger Action
-        // Reset to avoid double trigger
-        const reset = () => {
-            lastPoseRef.current = 'None'; 
-            setDetectedPose('None');
-            setGestureProgress(0);
-        };
-
-        if (mode === AppMode.HOME) {
-            if (currentPose === 'Both_Up') {
-                startQuiz(false);
-                if (soundEnabled) playSynthSound('hover');
-                reset();
-            }
-        } else if (mode === AppMode.QUIZ) {
-            if (!isAnswered) {
-                // Selecting an option
-                let optionIndex = -1;
-                if (currentPose === 'Left_Up') optionIndex = 0;
-                if (currentPose === 'Right_Up') optionIndex = 1;
-                if (currentPose === 'Left_Side') optionIndex = 2;
-                if (currentPose === 'Right_Side') optionIndex = 3;
-                
-                // Cross Arms for Home
-                if (currentPose === 'Cross_Arms') {
-                    setMode(AppMode.HOME);
-                    if (soundEnabled) playSynthSound('hover');
-                    reset();
-                    return;
-                }
-
-                if (optionIndex !== -1 && optionIndex < quizOptions.length) {
-                    handleOptionSelect(quizOptions[optionIndex].id);
-                    if (soundEnabled) playSynthSound('hover');
-                    reset();
-                }
-            } else {
-                // Next Question
-                if (currentPose === 'Both_Up') {
-                    handleNextCard();
-                    reset();
-                }
-                // Back to Home
-                if (currentPose === 'Cross_Arms') {
-                    setMode(AppMode.HOME);
-                    if (soundEnabled) playSynthSound('hover');
-                    reset();
-                }
-            }
-        } else if (mode === AppMode.STATS) {
-            if (currentPose === 'Cross_Arms') {
-                setMode(AppMode.HOME);
-                if (soundEnabled) playSynthSound('hover');
-                reset();
-            }
-        }
-    }
-
-  }, [detectedPose, mode, isAnswered, quizOptions, cameraEnabled, soundEnabled]); 
-
   const toggleMusicMode = () => {
     setMusicMode(prev => {
       if (prev === 'OFF') return 'FOCUS';
@@ -480,7 +386,7 @@ const App: React.FC = () => {
     setQuizOptions(options);
   }, []);
 
-  const startQuiz = (isReview: boolean) => {
+  const startQuiz = useCallback((isReview: boolean) => {
     let queue: KanjiEntry[] = [];
     
     if (isReview) {
@@ -516,9 +422,9 @@ const App: React.FC = () => {
     setQuizFinished(false);
     generateOptions(queue[0]);
     setMode(AppMode.QUIZ);
-  };
+  }, [progress, generateOptions]);
 
-  const handleOptionSelect = (selectedId: string) => {
+  const handleOptionSelect = useCallback((selectedId: string) => {
     if (isAnswered) return;
 
     const currentCard = currentQueue[currentIndex];
@@ -561,9 +467,9 @@ const App: React.FC = () => {
     setTimeout(() => {
         setIsFlipped(true);
     }, 600);
-  };
+  }, [isAnswered, currentQueue, currentIndex, soundEnabled]);
 
-  const handleNextCard = () => {
+  const handleNextCard = useCallback(() => {
     if (currentIndex < currentQueue.length - 1) {
       const nextIndex = currentIndex + 1;
       setCurrentIndex(nextIndex);
@@ -577,9 +483,9 @@ const App: React.FC = () => {
       }
       setQuizFinished(true);
     }
-  };
+  }, [currentIndex, currentQueue, generateOptions, soundEnabled]);
 
-  const resetProgress = () => {
+  const resetProgress = useCallback(() => {
     if (confirm("Are you sure you want to reset all progress?")) {
       setProgress({
         masteredIds: [],
@@ -587,7 +493,83 @@ const App: React.FC = () => {
         lastReviewDate: null
       });
     }
-  };
+  }, []);
+
+  const handleGestureAction = useCallback(() => {
+    // Reset progress
+    setGestureProgress(0);
+
+    if (mode === AppMode.HOME) {
+        if (detectedPose === 'Both_Up') {
+            startQuiz(false);
+            if (soundEnabled) playSynthSound('hover');
+        }
+    } else if (mode === AppMode.QUIZ) {
+        if (!isAnswered) {
+            let optionIndex = -1;
+            if (detectedPose === 'Left_Up') optionIndex = 0;
+            if (detectedPose === 'Right_Up') optionIndex = 1;
+            if (detectedPose === 'Left_Side') optionIndex = 2;
+            if (detectedPose === 'Right_Side') optionIndex = 3;
+
+            if (detectedPose === 'Cross_Arms') {
+                setMode(AppMode.HOME);
+                if (soundEnabled) playSynthSound('hover');
+                return;
+            }
+
+            if (optionIndex !== -1 && optionIndex < quizOptions.length) {
+                handleOptionSelect(quizOptions[optionIndex].id);
+            }
+        } else {
+            // Answered State
+            if (detectedPose === 'Both_Up') {
+                handleNextCard();
+            }
+            if (detectedPose === 'Cross_Arms') {
+                setMode(AppMode.HOME);
+                if (soundEnabled) playSynthSound('hover');
+            }
+        }
+    } else if (mode === AppMode.STATS) {
+        if (detectedPose === 'Cross_Arms') {
+            setMode(AppMode.HOME);
+            if (soundEnabled) playSynthSound('hover');
+        }
+    }
+  }, [detectedPose, mode, isAnswered, quizOptions, soundEnabled, startQuiz, handleOptionSelect, handleNextCard]);
+
+  // Action Logic Loop
+  useEffect(() => {
+    if (!cameraEnabled || detectedPose === 'None') {
+        setGestureProgress(0);
+        return;
+    }
+
+    let animationFrameId: number;
+    const startTime = Date.now();
+    const HOLD_TIME = 1000; // ms
+
+    const loop = () => {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        
+        if (elapsed < HOLD_TIME) {
+            const progress = (elapsed / HOLD_TIME) * 100;
+            setGestureProgress(progress);
+            animationFrameId = requestAnimationFrame(loop);
+        } else {
+            setGestureProgress(100);
+            handleGestureAction();
+        }
+    };
+
+    animationFrameId = requestAnimationFrame(loop);
+
+    return () => {
+        cancelAnimationFrame(animationFrameId);
+    };
+  }, [detectedPose, cameraEnabled, handleGestureAction]);
 
   const currentCard = currentQueue[currentIndex];
 
